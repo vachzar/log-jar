@@ -1,0 +1,16 @@
+# Config for log-jar
+base_url = "https://vachzar.github.io/log-jar"
+title = "Log Jar"
+description = "Vachzar's notes & logs"
+default_language = "en"
+build_search_index = true
+
+taxonomies = [
+    {name = "tags", feed = true},
+    {name = "categories", feed = true},
+]
+
+[markdown]
+
+[extra]
+author = "Vachzar Indra"
