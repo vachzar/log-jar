@@ -1,43 +1,98 @@
-<html>
-    <head>
-        <title>Zola</title>
-    </head>
-    <body>
-        <div class="container">
-            <h1>Welcome to Zola!</h1>
-            <p>
-                You're seeing this page because we couldn't find a template to render.
-            </p>
-            <p>
-                To modify this page, create a <b>page.html</b> file in the templates directory or
-                <a href="https://www.getzola.org/documentation/themes/installing-and-using-themes/" target="_blank">install a theme</a>.
-                <br>
-                You can find what variables are available in this template in the <a href="https:&#x2F;&#x2F;www.getzola.org&#x2F;documentation&#x2F;templates&#x2F;pages-sections&#x2F;#page-variables" target="_blank">documentation</a>.
-            </p>
-        </div>
-        <footer>
-            <a href="https://www.getzola.org/documentation/getting-started/cli-usage/" target="_blank">Get started with Zola</a>
-        </footer>
-        <style>
-            html {
-                line-height: 1.5;
-            }
-            h1 {
-                margin-bottom: 2rem;
-            }
-            .container {
-                font-family: "sans-serif";
-                text-align: center;
-                margin-top: 20vh;
-                padding: 2rem;
-                background: #e9e9e9;
-            }
-            footer {
-                position: fixed;
-                width: 100%;
-                bottom: 1rem;
-                text-align: center;
-            }
-        </style>
-    </body>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Belajar Setup OCIS dengan HTTPS — Cerita dari Depan Layar - Log Jar</title>
+    
+    
+    <meta name="description" content="Gimana aku setup ownCloud Infinite Scale 8 dengan HTTPS, dibalikin dari Caddy ke nginx, dan pelajaran soal Cookie yang bikin pusing">
+    
+    
+    
+    <link rel="canonical" href="https:&#x2F;&#x2F;vachzar.github.io&#x2F;log-jar&#x2F;blog&#x2F;setup-ocis-https&#x2F;" />
+    
+    <link rel="stylesheet" href="https://vachzar.github.io/log-jar/style.css">
+    
+    
+  </head>
+  <body class="theme-tokyonight">
+    
+    <header>
+      <nav>
+        <a href="https:&#x2F;&#x2F;vachzar.github.io&#x2F;log-jar">/home/</a>
+
+        
+        
+        
+        <a href="https:&#x2F;&#x2F;vachzar.github.io&#x2F;log-jar&#x2F;blog&#x2F;">&#x2F;blog&#x2F;</a>
+        
+
+        
+        
+      </nav>
+    </header>
+    <hr>
+    <main>
+      
+<section>
+  <h1>Belajar Setup OCIS dengan HTTPS — Cerita dari Depan Layar</h1>
+  
+  <p>published: <time>2026-06-05</time></p>
+  
+  
+  <div>
+    <p>Beberapa waktu lalu aku butuh akses file pribadi, <strong>dari mana aja</strong>. Keluarga juga kadang perlu upload/download dokumen, jadi aku pikir daripada pake Google Drive mending self-host aja. Pilihannya jatuh ke <strong>ownCloud Infinite Scale (OCIS)</strong> — katanya sih modern, cepat, gak butuh database.</p>
+<p>Dan ternyata… banyak drama.</p>
+<hr />
+<h2 id="arsitektur-yang-kebetulan-kompleks">Arsitektur yang Kebetulan Kompleks</h2>
+<p>Jadi begini setup-ku:</p>
+<ul>
+<li><strong>Server utama</strong> — minipc di rumah (192.168.1.2), jalanin OCIS di Docker</li>
+<li><strong>VPS</strong> — buat jembatan dari luar</li>
+<li><strong>AdGuard Home</strong> — rewrite <code>awan.vachzar.com</code> ke IP lokal biar kalau akses dari rumah gak perlu keluar internet dulu</li>
+</ul>
+<pre><code>Dari luar → VPS (NPM) → Tailscale → OCIS ✅
+Dari rumah → AdGuard rewrite → nginx lokal → OCIS ✅
+</code></pre>
+<p>Maksud sih simpel. Ternyata dari lokal aja udah rempong duluan.</p>
+<hr />
+<h2 id="kenapa-gak-pake-caddy-aja">Kenapa Gak Pake Caddy Aja?</h2>
+<p>Awalnya aku pake <strong>Caddy</strong>. Instal gampang, SSL otomatis lewat Cloudflare DNS module. Tapi… pas udah nyala, OCIS ngasih <strong>error 400</strong>. Pesannya soal <strong>XSRF token</strong>. Intinya cookie <code>__Secure-KKBS</code> gak kebentuk sama sekali.</p>
+<p>Caddy sih nge-forward request-nya pake TLS. Tapi entah kenapa header yang dikirim ke OCIS gak sesuai, dan OCIS sebagai IDP (Identity Provider) gak mau ngasih cookie itu kalau gak yakin koneksinya aman. Pokoknya <strong>Caddy gagal total</strong> buat setup ini.</p>
+<p>Aku udah coba oprek config Caddy, tapi makin gali makin dalem. Akhirnya nyerah.</p>
+<hr />
+<h2 id="balik-ke-nginx-seperti-old-friend">Balik ke nginx — Seperti Old Friend</h2>
+<p>Pas install nginx, rasanya kayak balik ke rumah. Config filenya straightforward. Ini dia konfigurasi yang akhirnya work:</p>
+<ul>
+<li><strong>SSL</strong> pake <strong>ZeroSSL</strong> via <strong>acme.sh</strong> — DNS-01 challenge pake Cloudflare API token</li>
+<li><strong>Cert disimpan</strong> di <code>/etc/nginx/ssl/</code></li>
+<li><strong>Nginx proxy_pass</strong> OCIS via HTTPS, tapi dengan <code>proxy_ssl_verify off</code> — karena OCIS pake self-signed cert di internal</li>
+</ul>
+<p>Yang paling penting: <strong>nginx ngasih header yang bener</strong>. Nggak tahu kenapa Caddy gagal di bagian ini, tapi nginx jalan mulus begitu config dipasang.</p>
+<hr />
+<h2 id="pelajaran-yang-kudapat">Pelajaran yang Kudapat</h2>
+<ol>
+<li><strong>Gak semua reverse proxy cocok buat semua backend.</strong> Caddy keren buat banyak hal, tapi OCIS 8.0.4 pilih kasih.</li>
+<li><strong>Cookie itu ternyata penting banget.</strong> XSRF token yang gak kebentuk bisa bikin semuanya berhenti.</li>
+<li><strong>AdGuard rewrite is clutch.</strong> Biar trafik lokal gak muter keluar internet dulu baru balik lagi — latency turun drastis.</li>
+<li><strong>acme.sh + DNS challenge &gt; HTTP challenge.</strong> Gak perlu buka port 80, cert jalan terus.</li>
+</ol>
+<hr />
+<h2 id="status-sekarang">Status Sekarang</h2>
+<p>OCIS 8.0.4 jalan di Docker (port 8001), di belakang nginx. HTTPS works dari luar lewat VPS, juga dari lokal lewat AdGuard → nginx. Keluarga bisa upload/download dengan tenang.</p>
+<p>File config nginx dan cert files aman disimpan, SSL renewal otomatis di-handle cron acme.sh tinggal reload nginx.</p>
+<p>Kadang solusi paling sederhana emang yang terbaik. Nginx + acme.sh. Old but gold.</p>
+
+  </div>
+</section>
+
+
+    </main>
+    <hr>
+    <footer>
+      <p>Powered by <a href="https://www.getzola.org/">Zola</a> and <a href="https://github.com/mxaddict/zolanight">ZolaNight Theme</a></p>
+      
+    </footer>
+  </body>
 </html>

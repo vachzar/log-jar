@@ -4,6 +4,7 @@ title = "Log Jar"
 description = "Vachzar's notes & logs"
 default_language = "en"
 compile_sass = true
+theme = "zolanight"
 build_search_index = false
 
 taxonomies = [

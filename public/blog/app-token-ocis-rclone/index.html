@@ -1,43 +1,133 @@
-<html>
-    <head>
-        <title>Zola</title>
-    </head>
-    <body>
-        <div class="container">
-            <h1>Welcome to Zola!</h1>
-            <p>
-                You're seeing this page because we couldn't find a template to render.
-            </p>
-            <p>
-                To modify this page, create a <b>page.html</b> file in the templates directory or
-                <a href="https://www.getzola.org/documentation/themes/installing-and-using-themes/" target="_blank">install a theme</a>.
-                <br>
-                You can find what variables are available in this template in the <a href="https:&#x2F;&#x2F;www.getzola.org&#x2F;documentation&#x2F;templates&#x2F;pages-sections&#x2F;#page-variables" target="_blank">documentation</a>.
-            </p>
-        </div>
-        <footer>
-            <a href="https://www.getzola.org/documentation/getting-started/cli-usage/" target="_blank">Get started with Zola</a>
-        </footer>
-        <style>
-            html {
-                line-height: 1.5;
-            }
-            h1 {
-                margin-bottom: 2rem;
-            }
-            .container {
-                font-family: "sans-serif";
-                text-align: center;
-                margin-top: 20vh;
-                padding: 2rem;
-                background: #e9e9e9;
-            }
-            footer {
-                position: fixed;
-                width: 100%;
-                bottom: 1rem;
-                text-align: center;
-            }
-        </style>
-    </body>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Berburu App Token di ownCloud Infinite Scale — Petualangan yang Tak Terduga - Log Jar</title>
+    
+    
+    <meta name="description" content="Cerita gimana aku nyari fitur App Token di oCIS 8.0.4 yang ternyata gak kelihatan di mana-mana, sampe akhirnya nemu jawaban di tempat yang gak kusangka">
+    
+    
+    
+    <link rel="canonical" href="https:&#x2F;&#x2F;vachzar.github.io&#x2F;log-jar&#x2F;blog&#x2F;app-token-ocis-rclone&#x2F;" />
+    
+    <link rel="stylesheet" href="https://vachzar.github.io/log-jar/style.css">
+    
+    
+  </head>
+  <body class="theme-tokyonight">
+    
+    <header>
+      <nav>
+        <a href="https:&#x2F;&#x2F;vachzar.github.io&#x2F;log-jar">/home/</a>
+
+        
+        
+        
+        <a href="https:&#x2F;&#x2F;vachzar.github.io&#x2F;log-jar&#x2F;blog&#x2F;">&#x2F;blog&#x2F;</a>
+        
+
+        
+        
+      </nav>
+    </header>
+    <hr>
+    <main>
+      
+<section>
+  <h1>Berburu App Token di ownCloud Infinite Scale — Petualangan yang Tak Terduga</h1>
+  
+  <p>published: <time>2026-06-05</time></p>
+  
+  
+  <div>
+    <p>Ceritaku soal OCIS belum selesai. Setelah berhasil bikin HTTPS jalan pake nginx, tantangan berikutnya muncul: <strong>gimana caranya backup isi OCIS ke server lokal?</strong></p>
+<p>Biasanya sih pake <strong>rclone</strong> — tinggal sambungin WebDAV, sync, beres. Tapi kali ini gak semulus itu.</p>
+<p>Aku gak mau pake password admin langsung buat koneksi rclone. Udah sewajarnya pake <strong>App Token</strong> — token khusus yang lebih aman, bisa dibatesin masa berlakunya. Masalahnya… OCIS ini <strong>gak punya menu App Token di Web UI-nya</strong>.</p>
+<hr />
+<h2 id="kok-gak-ada-ya">"Kok Gak Ada, Ya?"</h2>
+<p>Biasanya di ownCloud/Nextcloud ada menu <em>Security</em> atau <em>App Password</em> atau <em>App Token</em>. Di OCIS? Nihil. Sama sekali gak ada.</p>
+<p>Aku coba akses endpoint WebDAV langsung:</p>
+<pre><code>curl -I https://awan.vachzar.com/webdav
+</code></pre>
+<p>Balasannya <code>HTTP 401</code> dengan <code>WWW-Authenticate: Bearer</code>. OK, WebDAV-nya hidup. Tapi gimana cara dapet token?</p>
+<p>Balik ke Docker Compose. Cek environment variable:</p>
+<pre><code>docker exec -it ocis-ocis-1 env | grep APP
+</code></pre>
+<p><code>PROXY_ENABLE_APP_AUTH=true</code> udah aktif. Tapi pas check service yang jalan:</p>
+<pre><code>docker exec -it ocis-ocis-1 ocis list | grep auth
+</code></pre>
+<p>Cuma ada: <code>auth-basic</code>, <code>auth-machine</code>, <code>auth-service</code>. <strong>Gak ada <code>auth-app</code></strong>!</p>
+<hr />
+<h2 id="solusi-sementara-yang-sebenarnya-jalan-pintas">Solusi Sementara (Yang Sebenarnya Jalan Pintas)</h2>
+<p>Karena penasaran, aku coba paksa pake <strong>Basic Auth</strong> dulu — tinggal set <code>PROXY_ENABLE_BASIC_AUTH: "true"</code> terus coba login pake username/password admin.</p>
+<p>Dan… berhasil. WebDAV jalan, rclone connect. Tapi rasanya <strong>jorok</strong> banget. Password admin kepajang di config rclone, gak ada kontrol expiry, gak ada isolasi akses. Harus ada cara yang lebih bener.</p>
+<hr />
+<h2 id="oh-ternyata-perlu-ada-service-nya">"Oh, Ternyata Perlu Ada Service-nya"</h2>
+<p>Setelah gali-gali dokumentasi OCIS dan forum, nemu satu variable yang selama ini terlewat:</p>
+<p><strong><code>OCIS_ADD_RUN_SERVICES: "auth-app"</code></strong></p>
+<p>Ternyata <code>auth-app</code> ini service opsional. Walaupun <code>PROXY_ENABLE_APP_AUTH</code> udah <code>true</code>, service-nya sendiri <strong>gak otomatis jalan</strong>. Perlu ditambahin manual.</p>
+<p>Aneh sih. Tapi ya sudahlah — ini kan OCIS Community, mungkin emang designnya gitu.</p>
+<p>Tambahkan ke Docker Compose:</p>
+<pre><code data-lang="yaml">environment:
+  PROXY_ENABLE_BASIC_AUTH: &quot;true&quot;
+  PROXY_ENABLE_APP_AUTH: &quot;true&quot;
+  OCIS_ADD_RUN_SERVICES: &quot;auth-app&quot;
+</code></pre>
+<p>Restart container — <code>docker compose down &amp;&amp; docker compose up -d --force-recreate</code>. Doa sebentar…</p>
+<p>Cek lagi:</p>
+<pre><code>docker exec -it ocis-ocis-1 ocis list | grep auth
+</code></pre>
+<p><strong><code>auth-app</code> muncul!</strong> 🎉</p>
+<hr />
+<h2 id="bikin-token">Bikin Token</h2>
+<p>Setelah service-nya jalan, bikin token gampang banget:</p>
+<pre><code data-lang="bash">docker exec -it ocis-ocis-1 ocis auth-app create --user-name admin
+</code></pre>
+<p>Keluarlah一串 token. Langsung test:</p>
+<pre><code data-lang="bash">curl -u admin:&lt;TOKEN&gt; -X PROPFIND https://awan.vachzar.com/webdav
+</code></pre>
+<pre><code data-lang="xml">&lt;d:multistatus&gt;
+</code></pre>
+<p>Beres. WebDAV + App Token = match made in heaven.</p>
+<hr />
+<h2 id="rclone-ocis-backup-aman">Rclone + OCIS + Backup Aman</h2>
+<p>Config rclone-nya:</p>
+<pre><code>Type: webdav
+Vendor: owncloud
+URL: https://awan.vachzar.com/webdav
+User: admin
+Password: &lt;APP_TOKEN&gt;
+</code></pre>
+<p>Selesai deh. Sekarang backup jalan tiap hari dari OCIS ke server lokal pake script simpel:</p>
+<pre><code data-lang="bash">rclone sync ocis-source:/ /home/fajar/backup/ \
+  --backup-dir &quot;/home/fajar/backup-deleted/$(date +%F)&quot; \
+  --fast-list --progress
+</code></pre>
+<p>Yang keren: file yang kehapus dari OCIS <strong>gak ilang</strong> dari backup — dipindahin ke folder tanggal. Safety net yang bikin tidur lebih nyenyak.</p>
+<hr />
+<h2 id="pelajaran-dari-petualangan-ini">Pelajaran dari Petualangan Ini</h2>
+<ol>
+<li><strong>Jangan percaya config variable doang.</strong> <code>PROXY_ENABLE_APP_AUTH=true</code> gak berarti service-nya jalan. Kadang perlu explicit <code>OCIS_ADD_RUN_SERVICES</code>.</li>
+<li><strong>OCIS Community itu… interesting.</strong> Fitur opsi, dokumentasi gak selalu lengkap, beberapa service perlu dinyalakan manual.</li>
+<li><strong>Basic Auth itu jalan pintas, bukan solusi.</strong> Bisa sih dipake, tapi App Token jauh lebih proper.</li>
+<li><strong><code>--backup-dir</code> di rclone itu lifesaver.</strong> Udah pernah kejadian file kehapus dan baru sadar seminggu kemudian? Ini solusinya.</li>
+</ol>
+<hr />
+<h2 id="status-sekarang">Status Sekarang</h2>
+<p>OCIS 8.0.4 + App Token + rclone sync berjalan dengan baik. Backup harian otomatis dari OCIS ke server lokal, file yang terhapus aman di folder backup-deleted. Tinggal lupa urusan storage.</p>
+<p>Satu lagi centang di list self-host.</p>
+
+  </div>
+</section>
+
+
+    </main>
+    <hr>
+    <footer>
+      <p>Powered by <a href="https://www.getzola.org/">Zola</a> and <a href="https://github.com/mxaddict/zolanight">ZolaNight Theme</a></p>
+      
+    </footer>
+  </body>
 </html>
