@@ -3,14 +3,15 @@ base_url = "https://vachzar.github.io/log-jar"
 title = "Log Jar"
 description = "Vachzar's notes & logs"
 default_language = "en"
-build_search_index = true
+compile_sass = true
+build_search_index = false
 
 taxonomies = [
     {name = "tags", feed = true},
-    {name = "categories", feed = true},
 ]
 
 [markdown]
 
-[extra]
-author = "Vachzar Indra"
+[extra.zolanight]
+theme = "tokyonight"
+home_list_latest_blog_posts = true
