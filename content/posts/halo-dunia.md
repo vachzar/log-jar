@@ -7,3 +7,4 @@ description = "Postingan pertama"
 Halo! Ini blog pertama pake **Zola** + **GitHub Pages**.
 
 Cepet, ringan, gak ribet.
+
