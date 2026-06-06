@@ -1,4 +1,4 @@
 User-agent: *
 Disallow:
 Allow: /
-Sitemap: https://vachzar.github.io/log-jar/sitemap.xml
+Sitemap: https://log.jxr.my.id/sitemap.xml
