@@ -113,7 +113,7 @@ User: admin
 Password: <APP_TOKEN>
 ```
 
-Selesai deh. Sekarang backup jalan tiap hari dari OCIS ke server lokal pake script simpel:
+Selesai deh. Sekarang backup jalan dari OCIS ke server lokal pake script simpel:
 
 ```bash
 rclone sync ocis-source:/ /home/fajar/backup/ \
@@ -125,17 +125,125 @@ Yang keren: file yang kehapus dari OCIS **gak ilang** dari backup — dipindahin
 
 ---
 
+## Biar Otomatis: Systemd Timer > Cron
+
+Awalnya mau pake cron, tapi mending **systemd timer**. Kenapa?
+
+- **Lebih gampang dipantau** — `systemctl list-timers`, `journalctl -u service-name`
+- **Otomatis jalan setelah reboot** tanpa mikir
+- **Persistent** — kalo mati pas jam schedule, jalan pas nyala lagi
+
+### 1. Bikin Script Backup
+
+```bash
+mkdir -p /home/fajar/scripts
+```
+
+Bikin file `/home/fajar/scripts/rclone-ocis-sync.sh`:
+
+```bash
+#!/bin/bash
+
+LOGDIR="/home/fajar/logs"
+mkdir -p "$LOGDIR"
+
+rclone sync \
+    ocis-source:/ \
+    /home/fajar/backup/ \
+    --backup-dir "/home/fajar/backup-deleted/$(date +%F)" \
+    --fast-list \
+    --progress \
+    --log-file="$LOGDIR/rclone-sync.log" \
+    --log-level INFO
+```
+
+Beri izin:
+
+```bash
+chmod +x /home/fajar/scripts/rclone-ocis-sync.sh
+```
+
+### 2. Bikin Systemd Service
+
+`/etc/systemd/system/rclone-ocis-sync.service`:
+
+```ini
+[Unit]
+Description=Sync OCIS to Local Backup
+
+[Service]
+Type=oneshot
+User=fajar
+ExecStart=/home/fajar/scripts/rclone-ocis-sync.sh
+```
+
+### 3. Bikin Timer
+
+Misalnya **setiap 1 jam**:
+
+`/etc/systemd/system/rclone-ocis-sync.timer`:
+
+```ini
+[Unit]
+Description=Run OCIS Sync Every Hour
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+### 4. Aktifkan
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now rclone-ocis-sync.timer
+```
+
+Cek:
+
+```bash
+systemctl list-timers | grep rclone
+```
+
+### 5. Tes Jalan Manual
+
+```bash
+sudo systemctl start rclone-ocis-sync.service
+tail -f /home/fajar/logs/rclone-sync.log
+# atau
+journalctl -u rclone-ocis-sync.service -f
+```
+
+### Variasi Jadwal
+
+| Kecepatan | Config Timer |
+|-----------|-------------|
+| **15 menit** | `OnUnitActiveSec=15min` |
+| **Setiap jam** | `OnUnitActiveSec=1h` |
+| **Setiap hari jam 01:00** | `OnCalendar=*-*-* 01:00:00` |
+
+### Penting: Sync vs Copy
+
+Pake `rclone sync` berarti file yang dihapus dari OCIS **ikut kehapus** di backup. Kalo lo mau aman, tambah `--backup-dir` (udah di script di atas) atau ganti pake `rclone copy` biar file backup gak pernah ilang.
+
+---
+
 ## Pelajaran dari Petualangan Ini
 
 1. **Jangan percaya config variable doang.** `PROXY_ENABLE_APP_AUTH=true` gak berarti service-nya jalan. Kadang perlu explicit `OCIS_ADD_RUN_SERVICES`.
 2. **OCIS Community itu… interesting.** Fitur opsi, dokumentasi gak selalu lengkap, beberapa service perlu dinyalakan manual.
 3. **Basic Auth itu jalan pintas, bukan solusi.** Bisa sih dipake, tapi App Token jauh lebih proper.
 4. **`--backup-dir` di rclone itu lifesaver.** Udah pernah kejadian file kehapus dan baru sadar seminggu kemudian? Ini solusinya.
+5. **Systemd timer > cron.** Lebih terintegrasi, gampang di-monitor, otomatis persistent.
 
 ---
 
 ## Status Sekarang
 
-OCIS 8.0.4 + App Token + rclone sync berjalan dengan baik. Backup harian otomatis dari OCIS ke server lokal, file yang terhapus aman di folder backup-deleted. Tinggal lupa urusan storage.
+OCIS 8.0.4 + App Token + rclone sync berjalan dengan baik. Backup otomatis tiap jam via systemd timer, file yang terhapus aman di folder backup-deleted. Tinggal lupa urusan storage.
 
 Satu lagi centang di list self-host.
