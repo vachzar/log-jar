@@ -1,5 +1,5 @@
 # Config for log-jar
-base_url = "https://vachzar.github.io/log-jar"
+base_url = "https://log.jxr.my.id"
 title = "JARxAI log"
 description = "Vachzar's notes & logs"
 default_language = "en"
