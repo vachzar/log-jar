@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bikin Knowledge Base Sendiri — Hermes + Flask + Markdown - JARxAI log</title>
+    
+    
+    <meta name="description" content="Cerita gue bikin web UI note-taking pribadi pake Hermes API + Flask backend + markdown files, plus fitur graph view kaya Obsidian">
+    
+    
+    
+    <link rel="canonical" href="https:&#x2F;&#x2F;log.jxr.my.id&#x2F;blog&#x2F;vachzar-notes-webui&#x2F;" />
+    
+    <link rel="stylesheet" href="https://log.jxr.my.id/style.css">
+    
+    
+  </head>
+  <body class="theme-tokyonight">
+    
+    <header>
+      <nav>
+        <a href="https:&#x2F;&#x2F;log.jxr.my.id">/home/</a>
+
+        
+        
+        
+        <a href="https:&#x2F;&#x2F;log.jxr.my.id&#x2F;blog&#x2F;">&#x2F;blog&#x2F;</a>
+        
+
+        
+        
+      </nav>
+    </header>
+    <hr>
+    <main>
+      
+<section>
+  <h1>Bikin Knowledge Base Sendiri — Hermes + Flask + Markdown</h1>
+  
+  <p>published: <time>2026-06-07</time></p>
+  
+  
+  <div>
+    <p>Beberapa minggu lalu gue punya masalah: note gue berserakan. Ada di Hermes (konteks chat), ada di OCIS file server, ada di file <code>.md</code> lokal. Masing-masing terisolasi. Susah nyari catetan lama.</p>
+<p>Yang gue butuhin sebenarnya simpel:</p>
+<ul>
+<li>Note di <strong>markdown</strong> (biar portable)</li>
+<li>Bisa <strong>search</strong> cepet</li>
+<li>Ada <strong>web UI</strong> (biar bisa akses dari HP)</li>
+<li>Dark theme (karena gue nocturnal)</li>
+<li><strong>Remote access</strong> via Tailscale</li>
+</ul>
+<p>Gue punya Hermes Agent yang udah bisa akses file lokal, jadi gue pikir: <em>kenapa gak sambungin aja semua?</em></p>
+<hr />
+<h2 id="arsitektur-yang-kepikiran">Arsitektur yang Kepikiran</h2>
+<p>Gue gambar di kepala:</p>
+<pre><code>Hermes (Telegram) ↔ ~/notes/ (.md files) ↔ Flask API ↔ Web UI (responsive)
+                                             ↕ 
+                                        OCIS WebDAV (backup)
+</code></pre>
+<p>Jadi:</p>
+<ul>
+<li><strong>Source of truth:</strong> folder <code>~/notes/</code> — semua file <code>.md</code> biasa</li>
+<li><strong>Hermes skill:</strong> baca/tulis/search note via Telegram</li>
+<li><strong>Web UI:</strong> Flask serve static HTML + API buat browse/edit</li>
+<li><strong>Backup:</strong> OCIS WebDAV via rclone, biar aman</li>
+</ul>
+<p>Nggak ada database. Nggak ada server berat. Cuma Flask + filesystem.</p>
+<hr />
+<h2 id="bikin-backend">Bikin Backend</h2>
+<p>Gue buka laptop, terminal, mulai nulis <code>backend.py</code>. Satu file doang — Flask biasa:</p>
+<pre><code data-lang="python">@app.route(&#39;/api/notes&#39;)     # List semua notes + folder tree
+@app.route(&#39;/api/note&#39;)      # Baca note + frontmatter + backlinks
+@app.route(&#39;/api/search?q=&#39;) # Search isi notes
+@app.route(&#39;/api/save&#39;)      # Create / update note
+@app.route(&#39;/api/delete&#39;)    # Hapus note
+</code></pre>
+<p>Fitur penting yang gue masukin:</p>
+<ul>
+<li><strong>YAML frontmatter</strong> — parsing tags, dates dari <code>---</code> block</li>
+<li><strong>[[Wikilink]] detection</strong> — nyari cross-reference antar note</li>
+<li><strong>Backlinks</strong> — note mana aja yang nge-link ke note ini</li>
+<li><strong>Markdown → HTML</strong> — pake library <code>markdown</code> biar tampilannya rapi</li>
+</ul>
+<p>Yang paling gue suka: fitur backlink. Bisa liat "oh note ini direferensi sama note A, B, C" — persis kaya Obsidian.</p>
+<h2 id="frontend-3-column-dark-ui">Frontend: 3-Column Dark UI</h2>
+<p>Untuk web UI, gue buat <strong>single HTML file</strong> pake Tailwind CDN. Struktur layout:</p>
+<pre><code>[icon bar 56px] [sidebar (slide)] [main content]
+</code></pre>
+<p><strong>Desktop:</strong></p>
+<ul>
+<li>Icon bar kiri (w-14, sticky) — Browse, Graph, Daily, OCIS status</li>
+<li>Sidebar slide-in — file tree + search</li>
+<li>Konten utama — note yang lagi dibaca</li>
+</ul>
+<p><strong>Mobile (&lt;768px):</strong></p>
+<ul>
+<li>Hamburger menu → sidebar slide</li>
+<li>Full-width content</li>
+<li>Search toggle inline</li>
+</ul>
+<p>Warna pake palet gelap gue sendiri:</p>
+<table><thead><tr><th>Token</th><th>Hex</th><th>Buat</th></tr></thead><tbody>
+<tr><td>Sidebar</td><td><code>#0f1117</code></td><td>Background icon bar</td></tr>
+<tr><td>Surface</td><td><code>#16181f</code></td><td>Background utama</td></tr>
+<tr><td>Accent</td><td><code>#6c5ce7</code></td><td>Tombol aktif</td></tr>
+<tr><td>Text</td><td><code>#e4e6ef</code></td><td>Tulisan utama</td></tr>
+</tbody></table>
+<p>Gue pilih Tailwind CDN biar gak perlu build step. Edit HTML → refresh browser → liat hasil. Cepet banget buat prototyping.</p>
+<h3 id="css-flex-gotcha">CSS Flex Gotcha</h3>
+<p>Yang bikin gue pusing sejam: <strong>body harus <code>display: flex</code></strong>. Kedengeran sepele, tapi tanpa itu icon bar dan konten utama numpuk vertikal, bukan horizontal. Klasik.</p>
+<pre><code data-lang="css">body { display: flex; min-height: 100vh; overflow-x: hidden; }
+</code></pre>
+<p>Gue tulis di sini biar gue sendiri gak lupa nanti.</p>
+<h2 id="graph-view-obsidian-like-canvas">Graph View — Obsidian-like Canvas</h2>
+<p>Gue pengen ada visualisasi koneksi antar note. Seperti Obsidian Graph View. Tapi tanpa library berat kayak D3.js atau vis.js.</p>
+<p>Solusi: <strong>Canvas API murni.</strong></p>
+<pre><code data-lang="javascript">function drawGraph() {
+    const notes = allNotes.filter(n =&gt; n.wikilinks?.length);
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const radius = Math.min(centerX, centerY) * 0.6;
+
+    notes.forEach((note, i) =&gt; {
+        const angle = (2 * Math.PI * i) / notes.length;
+        const r = radius * (0.7 + Math.random() * 0.3);
+        // Gambar node di posisi (centerX + cos(angle)*r, centerY + sin(angle)*r)
+        // Gambar garis ke linked notes
+    });
+}
+</code></pre>
+<p>Hasilnya? Kira-kira kaya spider web — semua note terhubung bikin lingkaran. Node yang aktif (note yang lagi dibaca) di-highlight ungu <code>#6c5ce7</code>. Sederhana, ringan, gak perlu load library 500KB.</p>
+<h2 id="integrasi-hermes">Integrasi Hermes</h2>
+<p>Bagian paling keren: <strong>Hermes bisa akses notes yang sama dari Telegram.</strong></p>
+<p>Gue bikin Hermes skill <code>vachzar-notes</code> yang bisa:</p>
+<ul>
+<li><code>read note devops/hermes-agent-setup</code> — baca note + frontmatter + backlinks</li>
+<li><code>search notes docker</code> — search isi semua file <code>.md</code></li>
+<li><code>list notes</code> — liat folder tree</li>
+<li><code>bikin catatan bkd/resume.md — content</code> — bikin note baru</li>
+</ul>
+<p>Jadi workflow gue sekarang:
+<strong>Di HP (Telegram)</strong> → Hermes → <code>~/notes/</code> → <strong>Web UI di laptop</strong>
+<strong>Di laptop</strong> → Web UI → <code>~/notes/</code> → <strong>Hermes nanti bacanya sama</strong></p>
+<p>Semua sinkron karena file-nya sama.</p>
+<h2 id="auto-start-via-systemd">Auto-start via systemd</h2>
+<p>Biar gak perlu nyalain manual tiap boot:</p>
+<pre><code data-lang="bash">sudo tee /etc/systemd/system/vachzar-notes.service &lt;&lt; &#39;EOF&#39;
+[Unit]
+Description=Vachzar Notes Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=byo
+WorkingDirectory=/home/byo/vachzar-notes
+ExecStart=/usr/bin/python3 backend.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl enable --now vachzar-notes
+</code></pre>
+<p>Akses via:</p>
+<ul>
+<li><code>http://localhost:7777</code> — lokal</li>
+<li><code>http://192.168.1.2:7777</code> — LAN</li>
+<li><code>http://100.105.243.46:7777</code> — Tailscale (dari luar)</li>
+</ul>
+<h2 id="ocis-backup">OCIS Backup</h2>
+<p>Biar notes gak ilang kalo SSD jebol, gue sync ke OCIS WebDAV pake rclone:</p>
+<pre><code data-lang="bash">rclone sync ~/notes/ ocis-notes:/ --backup-dir &quot;backup-deleted/$(date +%F)&quot;
+</code></pre>
+<p>Jalan tiap jam via systemd timer. File kehapus aman di folder tanggal.</p>
+<hr />
+<h2 id="kenapa-ini-cocok-buat-gue">Kenapa Ini Cocok Buat Gue</h2>
+<ol>
+<li><strong>Gak ada vendor lock-in</strong> — notes file <code>.md</code> biasa, bisa dibaca text editor mana pun</li>
+<li><strong>Hermes integration</strong> — bisa akses dari Telegram kapan aja</li>
+<li><strong>Ringan</strong> — Flask + filesystem, gak perlu database, gak perlu Node.js build step</li>
+<li><strong>Mobile friendly</strong> — Tailwind responsive, jalan di HP Redmi Note 12 gue</li>
+<li><strong>Graph view</strong> — Obsidian-like tanpa Obsidian</li>
+</ol>
+<p>Yang paling pentung: <strong>semua ada di satu folder <code>~/notes/</code></strong>. Gue bisa <code>grep</code>, <code>rsync</code>, <code>git commit</code>, apa aja. Ini yang bikin gue milih pendekatan file-based dibanding pake aplikasi note-taking yang udah jadi.</p>
+<hr />
+<h2 id="status-sekarang">Status Sekarang</h2>
+<p>Vachzar Notes berjalan di systemd, bisa diakses dari mana aja via Tailscale. Hermes skill udah terintegrasi — tinggal chat di Telegram, note kegenerate. Graph view-nya kadang gue buka cuma buat liat-lihat jaringannya aja.</p>
+<p>Masih ada yang mau gue tambahin:</p>
+<ul>
+<li><strong>Daily notes template</strong> — auto-create note harian pas dibuka</li>
+<li><strong>Reverse proxy</strong> ke <code>notes.awan.vachzar.com</code></li>
+<li><strong>Drag &amp; drop</strong> upload file ke notes</li>
+</ul>
+<p>Tapi untuk MVP? Udah lebih dari cukup. Notes gue sekarang gak berserakan lagi.</p>
+
+  </div>
+</section>
+
+
+    </main>
+    <hr>
+    <footer>
+      <p>Powered by <a href="https://www.getzola.org/">Zola</a> and <a href="https://github.com/mxaddict/zolanight">ZolaNight Theme</a></p>
+      
+    </footer>
+  </body>
+</html>

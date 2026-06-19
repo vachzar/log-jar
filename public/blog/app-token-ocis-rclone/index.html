@@ -100,12 +100,86 @@ URL: https://awan.vachzar.com/webdav
 User: admin
 Password: &lt;APP_TOKEN&gt;
 </code></pre>
-<p>Selesai deh. Sekarang backup jalan tiap hari dari OCIS ke server lokal pake script simpel:</p>
+<p>Selesai deh. Sekarang backup jalan dari OCIS ke server lokal pake script simpel:</p>
 <pre><code data-lang="bash">rclone sync ocis-source:/ /home/fajar/backup/ \
   --backup-dir &quot;/home/fajar/backup-deleted/$(date +%F)&quot; \
   --fast-list --progress
 </code></pre>
 <p>Yang keren: file yang kehapus dari OCIS <strong>gak ilang</strong> dari backup — dipindahin ke folder tanggal. Safety net yang bikin tidur lebih nyenyak.</p>
+<hr />
+<h2 id="biar-otomatis-systemd-timer-cron">Biar Otomatis: Systemd Timer &gt; Cron</h2>
+<p>Awalnya mau pake cron, tapi mending <strong>systemd timer</strong>. Kenapa?</p>
+<ul>
+<li><strong>Lebih gampang dipantau</strong> — <code>systemctl list-timers</code>, <code>journalctl -u service-name</code></li>
+<li><strong>Otomatis jalan setelah reboot</strong> tanpa mikir</li>
+<li><strong>Persistent</strong> — kalo mati pas jam schedule, jalan pas nyala lagi</li>
+</ul>
+<h3 id="1-bikin-script-backup">1. Bikin Script Backup</h3>
+<pre><code data-lang="bash">mkdir -p /home/fajar/scripts
+</code></pre>
+<p>Bikin file <code>/home/fajar/scripts/rclone-ocis-sync.sh</code>:</p>
+<pre><code data-lang="bash">#!/bin/bash
+
+LOGDIR=&quot;/home/fajar/logs&quot;
+mkdir -p &quot;$LOGDIR&quot;
+
+rclone sync \
+    ocis-source:/ \
+    /home/fajar/backup/ \
+    --backup-dir &quot;/home/fajar/backup-deleted/$(date +%F)&quot; \
+    --fast-list \
+    --progress \
+    --log-file=&quot;$LOGDIR/rclone-sync.log&quot; \
+    --log-level INFO
+</code></pre>
+<p>Beri izin:</p>
+<pre><code data-lang="bash">chmod +x /home/fajar/scripts/rclone-ocis-sync.sh
+</code></pre>
+<h3 id="2-bikin-systemd-service">2. Bikin Systemd Service</h3>
+<p><code>/etc/systemd/system/rclone-ocis-sync.service</code>:</p>
+<pre><code data-lang="ini">[Unit]
+Description=Sync OCIS to Local Backup
+
+[Service]
+Type=oneshot
+User=fajar
+ExecStart=/home/fajar/scripts/rclone-ocis-sync.sh
+</code></pre>
+<h3 id="3-bikin-timer">3. Bikin Timer</h3>
+<p>Misalnya <strong>setiap 1 jam</strong>:</p>
+<p><code>/etc/systemd/system/rclone-ocis-sync.timer</code>:</p>
+<pre><code data-lang="ini">[Unit]
+Description=Run OCIS Sync Every Hour
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+</code></pre>
+<h3 id="4-aktifkan">4. Aktifkan</h3>
+<pre><code data-lang="bash">sudo systemctl daemon-reload
+sudo systemctl enable --now rclone-ocis-sync.timer
+</code></pre>
+<p>Cek:</p>
+<pre><code data-lang="bash">systemctl list-timers | grep rclone
+</code></pre>
+<h3 id="5-tes-jalan-manual">5. Tes Jalan Manual</h3>
+<pre><code data-lang="bash">sudo systemctl start rclone-ocis-sync.service
+tail -f /home/fajar/logs/rclone-sync.log
+# atau
+journalctl -u rclone-ocis-sync.service -f
+</code></pre>
+<h3 id="variasi-jadwal">Variasi Jadwal</h3>
+<table><thead><tr><th>Kecepatan</th><th>Config Timer</th></tr></thead><tbody>
+<tr><td><strong>15 menit</strong></td><td><code>OnUnitActiveSec=15min</code></td></tr>
+<tr><td><strong>Setiap jam</strong></td><td><code>OnUnitActiveSec=1h</code></td></tr>
+<tr><td><strong>Setiap hari jam 01:00</strong></td><td><code>OnCalendar=*-*-* 01:00:00</code></td></tr>
+</tbody></table>
+<h3 id="penting-sync-vs-copy">Penting: Sync vs Copy</h3>
+<p>Pake <code>rclone sync</code> berarti file yang dihapus dari OCIS <strong>ikut kehapus</strong> di backup. Kalo lo mau aman, tambah <code>--backup-dir</code> (udah di script di atas) atau ganti pake <code>rclone copy</code> biar file backup gak pernah ilang.</p>
 <hr />
 <h2 id="pelajaran-dari-petualangan-ini">Pelajaran dari Petualangan Ini</h2>
 <ol>
@@ -113,10 +187,11 @@ Password: &lt;APP_TOKEN&gt;
 <li><strong>OCIS Community itu… interesting.</strong> Fitur opsi, dokumentasi gak selalu lengkap, beberapa service perlu dinyalakan manual.</li>
 <li><strong>Basic Auth itu jalan pintas, bukan solusi.</strong> Bisa sih dipake, tapi App Token jauh lebih proper.</li>
 <li><strong><code>--backup-dir</code> di rclone itu lifesaver.</strong> Udah pernah kejadian file kehapus dan baru sadar seminggu kemudian? Ini solusinya.</li>
+<li><strong>Systemd timer &gt; cron.</strong> Lebih terintegrasi, gampang di-monitor, otomatis persistent.</li>
 </ol>
 <hr />
 <h2 id="status-sekarang">Status Sekarang</h2>
-<p>OCIS 8.0.4 + App Token + rclone sync berjalan dengan baik. Backup harian otomatis dari OCIS ke server lokal, file yang terhapus aman di folder backup-deleted. Tinggal lupa urusan storage.</p>
+<p>OCIS 8.0.4 + App Token + rclone sync berjalan dengan baik. Backup otomatis tiap jam via systemd timer, file yang terhapus aman di folder backup-deleted. Tinggal lupa urusan storage.</p>
 <p>Satu lagi centang di list self-host.</p>
 
   </div>

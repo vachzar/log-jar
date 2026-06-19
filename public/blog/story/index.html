@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>🔋 Perjalanan Membangun Bluetooth Battery Monitor - JARxAI log</title>
+    
+    
+    <meta name="description" content="Sebuah cerita tentang eksperimen coding, debugging, dan akhirnya berhasil membaca baterai speaker Bluetooth di Windows">
+    
+    
+    
+    <link rel="canonical" href="https:&#x2F;&#x2F;log.jxr.my.id&#x2F;blog&#x2F;story&#x2F;" />
+    
+    <link rel="stylesheet" href="https://log.jxr.my.id/style.css">
+    
+    
+  </head>
+  <body class="theme-tokyonight">
+    
+    <header>
+      <nav>
+        <a href="https:&#x2F;&#x2F;log.jxr.my.id">/home/</a>
+
+        
+        
+        
+        <a href="https:&#x2F;&#x2F;log.jxr.my.id&#x2F;blog&#x2F;">&#x2F;blog&#x2F;</a>
+        
+
+        
+        
+      </nav>
+    </header>
+    <hr>
+    <main>
+      
+<section>
+  <h1>🔋 Perjalanan Membangun Bluetooth Battery Monitor</h1>
+  
+  <p>published: <time>2026-06-19</time></p>
+  
+  
+  <div>
+    <h1 id="battery-perjalanan-membangun-bluetooth-battery-monitor">🔋 Perjalanan Membangun Bluetooth Battery Monitor</h1>
+<blockquote>
+<p>Sebuah cerita tentang eksperimen coding, debugging, dan akhirnya berhasil membaca baterai speaker Bluetooth di Windows.</p>
+</blockquote>
+<p><strong>Author:</strong> JARxAI<br />
+<strong>Date:</strong> June 2026<br />
+<strong>Tools:</strong> Python, PowerShell, C#, Windows API</p>
+<hr />
+<h2 id="book-mulai-dari-masalah-sederhana">📖 Mulai dari Masalah Sederhana</h2>
+<blockquote>
+<p>"Speaker bluetooth aku konek di laptop, bisa nggak sih bikin aplikasi kecil yang nampilin device yang konek dan bar baterainya?"</p>
+</blockquote>
+<p>Itu pertanyaan awal yang memulai semuanya. Kedengarannya sederhana kan? Ternyata... <strong>sangat tidak sederhana.</strong></p>
+<hr />
+<h2 id="arrows-counterclockwise-fase-1-python-powershell-awal">🔄 Fase 1: Python + PowerShell (Awal)</h2>
+<p>Mulai dengan script Python pakai <code>pystray</code> untuk system tray icon. Rencananya:</p>
+<ul>
+<li>Scan device Bluetooth via PowerShell</li>
+<li>Baca baterai via WMI</li>
+<li>Tampilkan di tray</li>
+</ul>
+<pre><code data-lang="python"># Versi pertama - looks simple right?
+def get_battery():
+    ps = &quot;Get-WmiObject Win32_Battery | Select EstimatedChargeRemaining&quot;
+    return run_ps(ps)
+</code></pre>
+<p><strong>Hasil:</strong> Tampil 79% ❌</p>
+<p><strong>Masalah:</strong> <code>Win32_Battery</code> itu baca baterai <strong>LAPTOP</strong>, bukan speaker Bluetooth! 🤦</p>
+<hr />
+<h2 id="mag-fase-2-mencari-cara-baca-baterai-speaker">🔍 Fase 2: Mencari Cara Baca Baterai Speaker</h2>
+<p>Mulai research: "How to read Bluetooth speaker battery on Windows?"</p>
+<h3 id="percobaan-1-pnp-device-properties">Percobaan 1: PnP Device Properties</h3>
+<pre><code data-lang="powershell">Get-PnpDevice -FriendlyName &#39;*Play 2*&#39; | Get-PnpDeviceProperty
+</code></pre>
+<p><strong>Hasil:</strong> Ada property <code>{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2</code> yang return battery level!</p>
+<p><strong>Masalah:</strong> Device yang benar ada di "Hands-Free AG", bukan di "Avrcp Transport" yang terdeteksi.</p>
+<h3 id="percobaan-2-winrt-api-python">Percobaan 2: WinRT API (Python)</h3>
+<pre><code data-lang="python">from winrt.windows.devices.bluetooth import BluetoothAdapter
+</code></pre>
+<p><strong>Hasil:</strong> Gagal. Device adalah Classic Bluetooth (A2DP), bukan BLE. WinRT hanya support BLE devices.</p>
+<h3 id="percobaan-3-c-dengan-win32-bluetooth-api">Percobaan 3: C# dengan Win32 Bluetooth API</h3>
+<p>Buat C# project untuk akses <code>BluetoothFindFirstDevice</code> API.</p>
+<p><strong>Hasil:</strong> Device terdeteksi, tapi tetap tidak bisa baca battery. Windows Settings pakai API internal yang tidak tersedia untuk third-party.</p>
+<hr />
+<h2 id="bulb-fase-3-stackoverflow-ke-rescue">💡 Fase 3: StackOverflow ke Rescue!</h2>
+<p>Nemukan <a rel="external" href="https://stackoverflow.com/questions/71736070">thread ini</a> yang menjelaskan:</p>
+<blockquote>
+<p>"Battery info ada di property <code>{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2</code> pada device yang tepat."</p>
+</blockquote>
+<p><strong>Key insight:</strong> Harus search semua device yang match nama speaker, bukan hanya device pertama!</p>
+<pre><code data-lang="powershell"># Yang benar
+Get-PnpDevice -FriendlyName &#39;*Play 2*&#39; | ForEach-Object {
+    $test = $_ | Get-PnpDeviceProperty -KeyName &#39;{104EA319-...} 2&#39;
+    if ($test) { $test.Data }
+}
+</code></pre>
+<p><strong>Hasil:</strong> 70% ✅ (bukan 79% yang salah tadi!)</p>
+<hr />
+<h2 id="bug-fase-4-bug-hunting-maraton">🐛 Fase 4: Bug Hunting Maraton</h2>
+<h3 id="bug-1-erazer-muncul-meskipun-disconnected">Bug 1: ERAZER muncul meskipun disconnected</h3>
+<p><strong>Masalah:</strong> Script tampilkan semua device yang punya battery, termasuk yang sudah mati.</p>
+<p><strong>Penyebab:</strong> Windows cache battery data! Device yang pernah connected tetap punya battery value meskipun sudah disconnected.</p>
+<h3 id="bug-2-options-tidak-work">Bug 2: Options tidak work</h3>
+<p><strong>Masalah:</strong> Pilih device di Options, tapi tetap tampilkan semua.</p>
+<p><strong>Penyebab:</strong> Logic filtering tidak ada di code!</p>
+<h3 id="bug-3-script-tidak-muncul-sama-sekali">Bug 3: Script tidak muncul sama sekali</h3>
+<p><strong>Masalah:</strong> Background scan belum selesai saat icon dibuat.</p>
+<p><strong>Penyebab:</strong> Race condition antara icon creation dan data loading.</p>
+<hr />
+<h2 id="key-fase-5-the-holy-grail-connection-property">🔑 Fase 5: The Holy Grail - Connection Property!</h2>
+<p>Nemukan property ajaib:</p>
+<pre><code>{83DA6326-97A6-4088-9453-A1923F573B29} 15
+</code></pre>
+<p>Property ini:</p>
+<ul>
+<li>Return <code>True</code> = Device <strong>BENAR-BENAR</strong> connected</li>
+<li>Return <code>False</code> = Device disconnected (tapi mungkin masih punya cached battery)</li>
+</ul>
+<p><strong>Test result:</strong></p>
+<pre><code>ERAZER X8: Connected=False, Battery=100% (cached!)
+Play 2:    Connected=True,  Battery=50%  (actual!)
+RDM:       Connected=False, Battery=None
+</code></pre>
+<p><strong>Akhirnya bisa bedakan device yang aktif vs yang cuma paired!</strong></p>
+<hr />
+<h2 id="bar-chart-teknologi-yang-digunakan">📊 Teknologi yang Digunakan</h2>
+<table><thead><tr><th>Tool</th><th>Fungsi</th></tr></thead><tbody>
+<tr><td><strong>Python</strong></td><td>Main language, system tray</td></tr>
+<tr><td><strong>pystray</strong></td><td>System tray icon</td></tr>
+<tr><td><strong>Pillow</strong></td><td>Icon image generation</td></tr>
+<tr><td><strong>PowerShell</strong></td><td>Windows API queries</td></tr>
+<tr><td><strong>WMI/PnP</strong></td><td>Device detection</td></tr>
+<tr><td><strong>C#</strong></td><td>Prototyping (discarded)</td></tr>
+<tr><td><strong>PyInstaller</strong></td><td>Build ke EXE</td></tr>
+</tbody></table>
+<hr />
+<h2 id="chart-with-upwards-trend-statistik-eksperimen">📈 Statistik Eksperimen</h2>
+<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>
+<tr><td><strong>Total coding sessions</strong></td><td>~15</td></tr>
+<tr><td><strong>Lines of code written</strong></td><td>~2000+</td></tr>
+<tr><td><strong>Lines of code final</strong></td><td>~150</td></tr>
+<tr><td><strong>PowerShell commands tested</strong></td><td>50+</td></tr>
+<tr><td><strong>Properties discovered</strong></td><td>100+</td></tr>
+<tr><td><strong>Bugs fixed</strong></td><td>15+</td></tr>
+<tr><td><strong>Cups of coffee</strong></td><td>☕☕☕☕☕</td></tr>
+</tbody></table>
+<hr />
+<h2 id="dart-lessons-learned">🎯 Lessons Learned</h2>
+<h3 id="1-windows-bluetooth-api-simple">1. Windows Bluetooth API ≠ Simple</h3>
+<blockquote>
+<p>"Baca baterai speaker Bluetooth di Windows itu TIDAK SEMUDAH yang dibayangkan."</p>
+</blockquote>
+<p>Windows Settings pakai API internal yang tidak tersedia untuk third party apps.</p>
+<h3 id="2-cached-data-is-tricky">2. Cached Data is Tricky</h3>
+<blockquote>
+<p>"Device yang sudah mati masih punya battery data di Windows."</p>
+</blockquote>
+<p>Harus cek connection status DULU baru baca battery.</p>
+<h3 id="3-property-names-are-cryptic">3. Property Names are Cryptic</h3>
+<blockquote>
+<p><code>"{83DA6326-97A6-4088-9453-A1923F573B29} 15"</code></p>
+</blockquote>
+<p>Siapa yang sangka property dengan UUID acak itu adalah kunci untuk mengecek koneksi Bluetooth?</p>
+<h3 id="4-stackoverflow-is-gold">4. StackOverflow is Gold</h3>
+<blockquote>
+<p>Tanpa thread di StackOverflow, kita tidak akan menemukan property battery yang benar.</p>
+</blockquote>
+<h3 id="5-start-simple-iterate-fast">5. Start Simple, Iterate Fast</h3>
+<blockquote>
+<p>Mulai dari 400 baris code, akhirnya jadi 150 baris yang lebih powerful.</p>
+</blockquote>
+<hr />
+<h2 id="crystal-ball-future-improvements">🔮 Future Improvements</h2>
+<ul>
+<li><input disabled="" type="checkbox"/>
+Multi-device display (tampilkan beberapa device sekaligus)</li>
+<li><input disabled="" type="checkbox"/>
+Notification saat baterai rendah</li>
+<li><input disabled="" type="checkbox"/>
+Auto-connect audio output</li>
+<li><input disabled="" type="checkbox"/>
+Support lebih banyak device types</li>
+<li><input disabled="" type="checkbox"/>
+Custom icon themes</li>
+<li><input disabled="" type="checkbox"/>
+Export battery history</li>
+</ul>
+<hr />
+<h2 id="speech-balloon-penutup">💬 Penutup</h2>
+<blockquote>
+<p>"Yang kedengarannya sederhana - 'baca baterai speaker' - ternyata butuh 15+ iterasi debugging, 50+ PowerShell commands, dan discovery property Windows yang sangat cryptic."</p>
+</blockquote>
+<p>Tapi pada akhirnya... <strong>berhasil juga!</strong> 🎉</p>
+<p>Dan yang paling penting: <strong>Play 2 sekarang tampil dengan battery 50% di taskbar!</strong> 🔋</p>
+<hr />
+<p><strong>Made with ❤️ by JARxAI</strong><br />
+<strong>June 2026</strong></p>
+
+  </div>
+</section>
+
+
+    </main>
+    <hr>
+    <footer>
+      <p>Powered by <a href="https://www.getzola.org/">Zola</a> and <a href="https://github.com/mxaddict/zolanight">ZolaNight Theme</a></p>
+      
+    </footer>
+  </body>
+</html>
