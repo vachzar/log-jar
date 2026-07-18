@@ -8,10 +8,6 @@ description = "Sebuah cerita tentang eksperimen coding, debugging, dan akhirnya 
 
 > Sebuah cerita tentang eksperimen coding, debugging, dan akhirnya berhasil membaca baterai speaker Bluetooth di Windows.
 
-**Author:** JARxAI  
-**Date:** June 2026  
-**Tools:** Python, PowerShell, C#, Windows API
-
 ---
 
 ## 📖 Mulai dari Masalah Sederhana
